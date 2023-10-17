@@ -13,6 +13,9 @@ import (
 )
 
 type SetupMessage struct{ projectPath string }
+type ExtraDepsMessage struct {
+	dependencies []Dependency
+}
 type InstallAllMsg struct{}
 type OnInstalledMsg struct{ index int }
 type AuditMsg struct{ audit npmAuditJSON }
@@ -101,13 +104,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			if msg.Type == tea.KeyEnter {
-				cmds := []tea.Cmd{
-					m.stopwatch.Start(),
-					func() tea.Msg { return InstallAllMsg{} },
-				}
-
 				m.view = Page3View
-				return m, tea.Sequence(cmds...)
+				return m, func() tea.Msg { return extraDependencies(&m) }
 			}
 		}
 
@@ -115,6 +113,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.projectPath = msg.projectPath
 		m.view = Page2View
 		return m, nil
+
+	case ExtraDepsMessage:
+		m.dependencies = append(m.dependencies, msg.dependencies...)
+		cmds := []tea.Cmd{
+			m.stopwatch.Start(),
+			func() tea.Msg { return InstallAllMsg{} },
+		}
+
+		return m, tea.Sequence(cmds...)
 
 	case InstallAllMsg:
 		for i := range m.dependencies {
@@ -249,6 +256,7 @@ func initialModel() Model {
 		dependencies: []Dependency{
 			{name: "typescript", selected: true, devDependency: true},
 			{name: "react", selected: true, devDependency: false},
+			{name: "kysely", selected: true, devDependency: false},
 			{name: "esbuild", selected: true, devDependency: true},
 			{name: "tailwindcss", selected: true, devDependency: true},
 			{name: "nodemon", selected: true, devDependency: true},

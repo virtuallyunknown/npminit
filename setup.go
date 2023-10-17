@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,19 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+)
+
+type EmbeddedFile []byte
+
+var (
+	//go:embed static/tailwind.config.js
+	TailwindConfigJs EmbeddedFile
+	//go:embed static/eslintrc.cjs
+	EslintConfigJs EmbeddedFile
+	//go:embed static/esbuild.js
+	EsbuildJs EmbeddedFile
+	//go:embed static/index.ts
+	IndexTs EmbeddedFile
 )
 
 type packageJSON struct {
@@ -84,11 +98,14 @@ func generateTsconfigJSON() tsconfigJSON {
 			RootDir                          string `json:"rootDir,omitempty"`
 			OutDir                           string `json:"outDir,omitempty"`
 		}{
-			Module:           "NodeNext",
-			ModuleResolution: "NodeNext",
-			Target:           "ESNext",
+			Module:                           "NodeNext",
+			ModuleResolution:                 "NodeNext",
+			Target:                           "ESNext",
+			ForceConsistentCasingInFileNames: true,
+			EsModuleInterop:                  true,
+			Strict:                           true,
 		},
-		Include: []string{"/.src"},
+		Include: []string{"src/**/*.*"},
 		Exclude: []string{"**/node_modules", "**/.*/"},
 	}
 }
@@ -119,6 +136,14 @@ func execOutput(args []string, dir string) (string, ExecError) {
 	}
 
 	return stdout.String(), ExecError{}
+}
+
+func copyStaticFile(m *Model, staticFile EmbeddedFile, fileName string) error {
+	if err := os.WriteFile(path.Join(m.projectPath, fileName), staticFile, 0644); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func getProjectPath(projectName string) (string, error) {
@@ -227,7 +252,66 @@ func setupProject(m *Model) tea.Msg {
 		return ErrorMsg{error: err}
 	}
 
+	err = copyStaticFile(m, EslintConfigJs, "eslintrc.cjs")
+	if err != nil {
+		return ErrorMsg{error: err}
+	}
+
+	err = copyStaticFile(m, EslintConfigJs, "esbuild.js")
+	if err != nil {
+		return ErrorMsg{error: err}
+	}
+
 	return SetupMessage{projectPath: projectPath}
+}
+
+func extraDependencies(m *Model) tea.Msg {
+	var deps []Dependency
+
+	for _, dep := range m.dependencies {
+		if !dep.selected {
+			continue
+		}
+
+		if dep.name == "typescript" {
+			err := copyStaticFile(m, IndexTs, "src/index.ts")
+			if err != nil {
+				return ErrorMsg{error: err}
+			}
+		}
+
+		if dep.name == "esbuild" {
+			err := copyStaticFile(m, EsbuildJs, "esbuild.js")
+			if err != nil {
+				return ErrorMsg{error: err}
+			}
+		}
+
+		if dep.name == "react" {
+			deps = append(deps,
+				Dependency{name: "@types/react", selected: true, devDependency: true},
+				Dependency{name: "@types/react-dom", selected: true, devDependency: true},
+				Dependency{name: "eslint-plugin-react", selected: true, devDependency: true},
+				Dependency{name: "@typescript-eslint/eslint-plugin", selected: true, devDependency: true},
+				Dependency{name: "@typescript-eslint/parser", selected: true, devDependency: true},
+			)
+		}
+
+		if dep.name == "kysely" {
+			deps = append(deps,
+				Dependency{name: "@types/node", selected: true, devDependency: true},
+			)
+		}
+
+		if dep.name == "tailwindcss" {
+			err := copyStaticFile(m, TailwindConfigJs, "tailwind.config.js")
+			if err != nil {
+				return ErrorMsg{error: err}
+			}
+		}
+	}
+
+	return ExtraDepsMessage{dependencies: deps}
 }
 
 func severityStatus(audit *npmAuditJSON) string {
